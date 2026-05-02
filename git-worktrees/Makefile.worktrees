@@ -1,0 +1,120 @@
+# =============================================================================
+# Git Worktree Helpers
+# =============================================================================
+
+.PHONY: worktree merge-worktree
+
+# --- Configuration ------------------------------------------------------------
+
+# Base branch to create worktree from (default: current active branch).
+# Override: make worktree BRANCH=feat BASE_BRANCH=main
+BASE_BRANCH  ?= $(shell git branch --show-current 2>/dev/null)
+
+# Name of new branch / worktree (required)
+BRANCH       ?=
+
+# Directory for worktrees (relative to repo root)
+WORKTREE_DIR ?= .worktrees
+
+# Files/directories (space-separated) to symlink into the new worktree.
+# Example: make worktree BRANCH=feat LINK_FILES=".env node_modules vendor"
+LINK_FILES   ?=
+
+# Absolute path to repo root
+REPO_ROOT    := $(shell git rev-parse --show-toplevel 2>/dev/null)
+
+# Absolute path to new worktree
+WORKTREE_ABS  = $(REPO_ROOT)/$(WORKTREE_DIR)/$(BRANCH)
+
+# --- 1. Create worktree -------------------------------------------------------
+
+worktree: ## Create worktree from BASE_BRANCH and symlink LINK_FILES
+ifeq ($(BRANCH),)
+	@echo "Error: Specify BRANCH. Example: make worktree BRANCH=my-feature"
+	@exit 1
+endif
+ifeq ($(BASE_BRANCH),)
+	@echo "Error: Cannot detect current branch (detached HEAD?). Specify BASE_BRANCH=..."
+	@exit 1
+endif
+ifeq ($(BRANCH),$(BASE_BRANCH))
+	@echo "Error: BRANCH and BASE_BRANCH must differ ($(BASE_BRANCH))"
+	@exit 1
+endif
+	@if [ -z "$(REPO_ROOT)" ]; then \
+		echo "Error: Must run inside a git repository."; exit 1; \
+	fi
+	@if git show-ref --verify --quiet "refs/heads/$(BRANCH)" 2>/dev/null; then \
+		echo "Error: Local branch '$(BRANCH)' already exists."; exit 1; \
+	fi
+	@if [ -e "$(WORKTREE_ABS)" ]; then \
+		echo "Error: Path already exists: $(WORKTREE_ABS)"; exit 1; \
+	fi
+	@mkdir -p "$(REPO_ROOT)/$(WORKTREE_DIR)"
+	@if [ -f "$(REPO_ROOT)/.gitignore" ] && ! grep -qxF "$(WORKTREE_DIR)/" "$(REPO_ROOT)/.gitignore"; then \
+		echo "$(WORKTREE_DIR)/" >> "$(REPO_ROOT)/.gitignore"; \
+	fi
+	@echo "Creating worktree '$(BRANCH)' from '$(BASE_BRANCH)'..."
+	git worktree add -b $(BRANCH) "$(WORKTREE_ABS)" $(BASE_BRANCH)
+	@echo "Creating symlinks for LINK_FILES..."
+	@for item in $(LINK_FILES); do \
+		src="$(REPO_ROOT)/$$item"; \
+		dst="$(WORKTREE_ABS)/$$item"; \
+		if [ ! -e "$$src" ] && [ ! -L "$$src" ]; then \
+			echo "   skip (not found): $$item"; \
+			continue; \
+		fi; \
+		mkdir -p "$$(dirname "$$dst")"; \
+		if [ -e "$$dst" ] || [ -L "$$dst" ]; then \
+			echo "   skip (already exists): $$item"; \
+		else \
+			ln -s "$$src" "$$dst"; \
+			echo "   ok: $$item"; \
+		fi; \
+	done
+	@echo ""
+	@echo "Done: $(WORKTREE_ABS)"
+	@echo "cd $(WORKTREE_ABS)"
+
+# --- 2. Merge worktree --------------------------------------------------------
+
+merge-worktree: ## Merge BRANCH into BASE_BRANCH and remove worktree
+ifeq ($(BRANCH),)
+	@echo "Error: Specify BRANCH. Example: make merge-worktree BRANCH=my-feature"
+	@exit 1
+endif
+ifeq ($(BASE_BRANCH),)
+	@echo "Error: Cannot detect BASE_BRANCH. Specify BASE_BRANCH=..."
+	@exit 1
+endif
+ifeq ($(BRANCH),$(BASE_BRANCH))
+	@echo "Error: BRANCH and BASE_BRANCH must differ ($(BASE_BRANCH))"
+	@exit 1
+endif
+	@WT=$$(git worktree list --porcelain | \
+		awk '/^worktree / { sub(/^worktree /, ""); p=$$0 } \
+		     /^branch /  { sub(/^branch /, ""); if ($$0 == "refs/heads/$(BRANCH)") print p }'); \
+	if [ -z "$$WT" ]; then \
+		echo "Error: Worktree for branch '$(BRANCH)' not found."; exit 1; \
+	fi; \
+	echo "Found worktree: $$WT"; \
+	echo "Switching main tree to $(BASE_BRANCH)..."; \
+	git -C "$(REPO_ROOT)" checkout $(BASE_BRANCH) || { \
+		echo "Error: Failed to checkout $(BASE_BRANCH). Save changes and retry."; exit 1; \
+	}; \
+	echo "Updating $(BASE_BRANCH)..."; \
+	git -C "$(REPO_ROOT)" pull origin $(BASE_BRANCH); \
+	echo "Merging $(BRANCH) into $(BASE_BRANCH)..."; \
+	git -C "$(REPO_ROOT)" merge $(BRANCH) || { \
+		echo "Error: Merge conflict. Resolve in $(REPO_ROOT) and finish manually."; exit 1; \
+	}; \
+	echo "Pushing $(BASE_BRANCH)..."; \
+	git -C "$(REPO_ROOT)" push origin $(BASE_BRANCH); \
+	echo "Removing worktree $$WT..."; \
+	git worktree remove "$$WT" || { \
+		echo "Warning: Could not auto-remove worktree. Remove manually:"; \
+		echo "   git worktree remove $$WT"; exit 1; \
+	}; \
+	echo ""; \
+	echo "Done: Branch '$(BRANCH)' merged into '$(BASE_BRANCH)', worktree removed."; \
+	echo "Back to root: cd $(REPO_ROOT)"
