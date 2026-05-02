@@ -26,6 +26,13 @@ REPO_ROOT    := $(shell git rev-parse --show-toplevel 2>/dev/null)
 # Absolute path to new worktree
 WORKTREE_ABS  = $(REPO_ROOT)/$(WORKTREE_DIR)/$(BRANCH)
 
+## Note: Add this help target to the Makefile if it is missing there or not working properly.
+# --- Help ---------------------------------------------------------------------
+
+#help: ## Показать доступные команды
+#	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+
 # --- 1. Create worktree -------------------------------------------------------
 
 worktree: ## Create worktree from BASE_BRANCH and symlink LINK_FILES
