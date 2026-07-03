@@ -47,17 +47,17 @@ For each package with issues:
    Files affected:
    <list-of-files>
    
-   Guidelines:
-   1. Read the affected file(s) and understand the context
-   2. For each linter issue, ask yourself: "Will this fix break the project?"
-   3. If the fix might break functionality:
-      - DO NOT apply the fix
-      - Document the issue with explanation why it shouldn't be changed
-      - Suggest an alternative approach if possible
-   4. If the fix is safe:
-      - Apply the fix following project conventions
-      - Ensure code remains idiomatic Go
-   5. After fixes, verify the code still compiles: `go build ./<package-path>`
+    Guidelines:
+    1. Read the affected file(s) and understand the context
+    2. For each linter issue, ask yourself: "Will this fix break the project?"
+    3. If the fix might break functionality:
+       - DO NOT apply the fix
+       - Document the issue with explanation why it shouldn't be changed
+       - Suggest an alternative approach if possible
+    4. If the fix is safe:
+       - Apply the fix following project conventions
+       - Ensure code remains idiomatic Go
+    5. After fixes, verify the code still compiles: `go build ./<package-path>`
    
    Return a summary of:
    - Issues fixed
@@ -86,11 +86,15 @@ Before applying any fix, subagents must consider:
 3. **Test coverage**: Are there tests that verify the current behavior?
 4. **Dependencies**: Will removing code break other packages that depend on it?
 5. **Code semantics**: Does the "unused" code serve a purpose (e.g., interface implementation)?
+6. **Context handling** — NEVER merge unrelated contexts, even if the linter suggests it. This is critical:
+   - If a function receives a short-lived context (e.g., `OnStart(ctx context.Context)`) and must launch a background operation with a longer lifespan, these contexts MUST remain separate.
+   - The linter may flag this as "unused variable" or suggest merging contexts, but merging would create a bug: cancelling the parent context would prematurely terminate the long-running operation.
+   - **Rule**: When a short context controls function entry/lifecycle and a long context controls background work, keep them as distinct variables. Suppress the linter warning if needed (e.g., `//nolint:...` or rename the short context to `_` if unused beyond the check).
 
 ## Example: Issue Categories to Handle
 
 - **Unused imports**: Safe to remove unless used by code generation
-- **Unused variables**: Usually safe, but check if side effects are intended
+- **Unused variables**: Usually safe, but check if side effects are intended.
 - **Dead code**: Verify not needed for tests or future use
 - **Style violations**: Formatting issues, naming conventions
 - **Error handling**: Missing error checks, ignored return values
